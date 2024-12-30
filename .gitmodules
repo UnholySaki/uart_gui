@@ -1,0 +1,3 @@
+[submodule "py_library"]
+	path = py_library
+	url = https://github.com/UnholySaki/py_library.git
