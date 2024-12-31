@@ -1,0 +1,26 @@
+# c_library
+This is libraries for various things written in C
+
+
+
+### UPDATE 12/2024 ###
+This is the start of the project
+
+
+### HOW TO RUN THE EXAMPLE ###
+(Linux)
+1. open terminal in the dir
+2. mkdir build_linux
+3. cd build_linux
+4. cmake ..
+5. make
+6. ./<output_file>
+
+(Windows)
+1. point to directory
+2. mkdir build_win 
+3. cd ./build_win
+4. cmake ..
+5. cmake --build .
+6. ./Debug/<exe_file>
+
