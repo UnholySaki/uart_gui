@@ -6,8 +6,7 @@ import os
 
 sys.path.append(os.path.abspath("../inc"))
 
-from gui import *
-
+from gui.gui import *
 
 
 def gui_thread_func():

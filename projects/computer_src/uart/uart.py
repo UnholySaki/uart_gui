@@ -1,8 +1,9 @@
 import sys
 import os
-from ret_code import RET_CODE
 
-sys.path.append(os.path.abspath("../inc"))
+sys.path.append(os.path.abspath(".."))
+
+from common.ret_code import RET_CODE
 
 BAUDRATE_LIST = [
     110, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400,
@@ -12,15 +13,14 @@ BAUDRATE_LIST = [
 
 
 class UartSetting(RET_CODE):
-
     def __init__(self):
         self.port = "/dev/ttyUSB0"
         self.baudrate = 115200
-        self.file_address = None
+        self.file_address = "../../bin/uart.bin"
 
         ###### SET Functions ######
 
-    def set_port(self, value):
+    def set_cfg_port(self, value):
         if not isinstance(value, str):
             # raise ValueError("Invalid port")
             return RET_CODE.ERR_INVALID
@@ -31,7 +31,7 @@ class UartSetting(RET_CODE):
         self.port = value
         return RET_CODE.SUCCESS
 
-    def set_baudrate(self, value):
+    def set_cfg_baudrate(self, value):
         if value not in BAUDRATE_LIST:
             # raise ValueError("Inval id baudrate")
             # Default baudrate
@@ -53,13 +53,13 @@ class UartSetting(RET_CODE):
         return RET_CODE.SUCCESS
 
     ####### GET Functions #####
-    def get_baudrate(self):
+    def get_cfg_baudrate(self):
         if self.baudrate is None:
             raise ValueError("Baudrate is not set")
         return self.baudrate
 
-    def get_port(self):
+    def get_cfg_port(self):
         return self.port
 
-    def get_file_address(self):
+    def get_cfg_file_addr(self):
         return self.file_address

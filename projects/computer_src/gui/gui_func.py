@@ -1,7 +1,13 @@
 import tkinter as tk
 from tkinter import filedialog
-from uart import UartSetting
+from tkinter import dialog
 
+import sys
+import os
+
+sys.path.append(os.path.abspath(".."))
+
+from uart.uart import *
 
 def open_setting_window():
     setting_root = tk.Toplevel()
@@ -13,13 +19,28 @@ def open_setting_window():
 
 def save_setting(uart_obj: UartSetting, port, baudrate, bin_adr,
                  display_field):
-    uart_obj.set_port(port.get())
-    uart_obj.set_baudrate(int(baudrate.get()))
-    uart_obj.set_file_address(bin_adr.get())
+    port_value = port.get()
+    if not port_value:
+        err_popup()
+        return
+    uart_obj.set_cfg_port(port_value)
+
+    baudrate_value = int(baudrate.get())
+    if not baudrate_value:
+        err_popup()
+        return
+    uart_obj.set_cfg_baudrate(baudrate_value)
+
+    file_address = bin_adr.get()
+    if not file_address:
+        err_popup()
+        return
+    uart_obj.set_cfg_file_addr(file_address)
+
     new_setting = "New setting:\n"
-    new_setting += "Port: " + uart_obj.get_port() + "\n"
-    new_setting += "Baudrate: " + str(uart_obj.get_baudrate()) + "\n"
-    new_setting += "Bin address: " + str(uart_obj.get_file_address())
+    new_setting += "Port: " + uart_obj.get_cfg_port() + "\n"
+    new_setting += "Baudrate: " + str(uart_obj.get_cfg_baudrate()) + "\n"
+    new_setting += "Bin address: " + str(uart_obj.get_cfg_file_addr())
     update_field(new_setting, display_field)
 
 
@@ -32,7 +53,7 @@ def update_field(text, dbox):
     dbox.config(state=tk.DISABLED)
 
 
-def open_file(uart_obj, dbox):
+def open_file(uart_obj: UartSetting, dbox: tk.Entry):
     file_path = filedialog.askopenfilename()
     if file_path:
         with open(file_path, "r") as file:
@@ -42,7 +63,7 @@ def open_file(uart_obj, dbox):
             dbox.insert(tk.END, content)
             dbox.config(state=tk.DISABLED)
 
-        uart_obj.set_file_address(file_path)
+        uart_obj.set_cfg_file_addr(file_path)
 
 
 def save_file(display_box):
@@ -54,3 +75,11 @@ def save_file(display_box):
         with open(file_path, "w") as file:
             content = display_box.get(1.0, tk.END)
             file.write(content)
+
+
+def err_popup(title="Error", text="Please enter the file address"):
+    dialog.Dialog(title=title,
+                  text=text,
+                  bitmap=dialog.DIALOG_ICON,
+                  default=0,
+                  strings=("OK", ))

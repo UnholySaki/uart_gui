@@ -1,37 +1,17 @@
 import sys
 import os
+sys.path.append(os.path.abspath(".."))
+
 import tkinter as tk
 from tkinter import ttk
+from gui.gui_func import *
+from gui_configs import *
 
-from uart import *
-from gui_func import *
-
-
-
-sys.path.append(os.path.abspath("../inc"))
-
+### Global variables
 global uart_setting
 uart_setting = UartSetting()
 
-
-INPUT_BOX_WIDTH = 30
-LABEL_WIDTH = 8
-PADX = 10
-PADY = 5
-
-
-UART_CV_WIDTH = int((INPUT_BOX_WIDTH + LABEL_WIDTH) * 10)
-UART_CV_HEIGHT = 300
-
-GEN_CV_WIDTH = 500
-GEN_CV_HEIGHT = UART_CV_HEIGHT
-
-ROOT_WIDTH = UART_CV_WIDTH + GEN_CV_WIDTH + 2 * PADX
-ROOT_HEIGHT = UART_CV_HEIGHT + PADY
-
-BTN_WIDTH = 10
-
-
+### Main function
 def init_gui():
     ######### Overall Setup ##########
     # Create the main window
@@ -80,16 +60,18 @@ def init_uart_frame(frame):
     file_adr_entry = tk.Entry(frame, width=INPUT_BOX_WIDTH)
     file_adr_entry.grid(row=2, column=1, padx=PADX, pady=PADY)
 
-    info_box = tk.Text(
-        frame, width=LABEL_WIDTH + INPUT_BOX_WIDTH, height=6, state=tk.DISABLED
-    )
+    info_box = tk.Text(frame,
+                       width=LABEL_WIDTH + INPUT_BOX_WIDTH,
+                       height=6,
+                       state=tk.DISABLED)
     info_box.grid(row=3, column=0, columnspan=2, padx=PADX, pady=PADY)
 
     save_setting_btn = tk.Button(
         frame,
         width=BTN_WIDTH,
         text="Save Settings",
-        command=lambda: save_setting(uart_setting, port_entry, baudrate_entry, file_adr_entry, info_box),
+        command=lambda: save_setting(uart_setting, port_entry, baudrate_entry,
+                                     file_adr_entry, info_box),
     )
     save_setting_btn.grid(row=4, column=0, padx=PADX, pady=PADY, sticky=tk.S)
 
@@ -97,12 +79,14 @@ def init_uart_frame(frame):
         frame,
         width=BTN_WIDTH,
         text="Refresh",
-        command=lambda: update_field(uart_setting.get_file_address(), info_box),
+        command=lambda: update_field(uart_setting.get_cfg_file_addr(), info_box
+                                     ),
     )
     refresh_btn.grid(row=4, column=1, padx=PADX, pady=PADY, sticky=tk.S)
 
-    port_entry.insert(tk.END, uart_setting.get_port())
-    baudrate_entry.insert(tk.END, str(uart_setting.get_baudrate()))
+    port_entry.insert(tk.END, uart_setting.get_cfg_port())
+    baudrate_entry.insert(tk.END, str(uart_setting.get_cfg_baudrate()))
+    file_adr_entry.insert(tk.END, uart_setting.get_cfg_file_addr())
 
     info_box.config(state=tk.NORMAL)
     info_box.insert(tk.END, "Setting\n")
@@ -118,7 +102,7 @@ def init_app_frame(frame):
         frame,
         width=BTN_WIDTH,
         text="Open File",
-        command=lambda: open_file(general_box),
+        command=lambda: open_file(uart_setting, general_box),
     )
     open_file_btn.grid(row=0, column=1, padx=PADX, pady=PADY)
 
@@ -133,9 +117,10 @@ def init_app_frame(frame):
     )
     display_button.grid(row=0, column=2, padx=PADX, pady=PADY)
 
-    send_to_uart_btn = tk.Button(
-        frame, width=BTN_WIDTH, text="Upload", command=lambda: upload_data()
-    )
+    send_to_uart_btn = tk.Button(frame,
+                                 width=BTN_WIDTH,
+                                 text="Upload",
+                                 command=lambda: upload_data())
     send_to_uart_btn.grid(row=2, column=0, padx=PADX, pady=PADY)
 
     save_btn = tk.Button(
@@ -153,7 +138,6 @@ def init_app_frame(frame):
         command=lambda: open_setting_window(),
     )
     setting_btn.grid(row=2, column=2, padx=PADX, pady=PADY)
-
 
 
 def upload_data():
