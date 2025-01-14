@@ -2,12 +2,9 @@ import tkinter as tk
 from tkinter import filedialog
 from tkinter import dialog
 
-import sys
-import os
-
-sys.path.append(os.path.abspath(".."))
-
 from uart.uart import *
+from file_handler.read_hex_file import *
+
 
 def open_setting_window():
     setting_root = tk.Toplevel()
@@ -83,3 +80,17 @@ def err_popup(title="Error", text="Please enter the file address"):
                   bitmap=dialog.DIALOG_ICON,
                   default=0,
                   strings=("OK", ))
+
+
+def upload_data(uart_obj: UartSetting):
+    # Open serial port
+    try:
+        uart_serial = serial.Serial(port=uart_obj.get_cfg_port(),
+                                    baudrate=uart_obj.get_cfg_baudrate(),
+                                    timeout=1)
+    except serial.SerialException:
+        err_popup("Error", "Port not exist")
+        return
+    
+    upload_bin(uart_serial_port=uart_serial,
+                  file_path="releases\Application.hex")
