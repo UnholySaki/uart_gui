@@ -3,7 +3,7 @@ from tkinter import filedialog
 from tkinter import dialog
 
 from uart.uart import *
-from file_handler.read_hex_file import *
+from upload.hex_handler import *
 
 
 def open_setting_window():
@@ -92,5 +92,5 @@ def upload_data(uart_obj: UartSetting):
         err_popup("Error", "Port not exist")
         return
     
-    upload_bin(uart_serial_port=uart_serial,
+    hex_upload_file(uart_serial_port=uart_serial,
                   file_path="releases\Application.hex")

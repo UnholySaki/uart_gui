@@ -1,9 +1,9 @@
 import time
 import os
-from file_handler.send_uart import *
-from common.crc_32 import *
+from upload.send_uart import *
+from upload.hex_uart_cmd import *
+import common.crc_32 as crc_32
 from common.memory_map import *
-
 
 global period
 global main_address
@@ -39,23 +39,24 @@ SECTOR_SIZE = KB
 memory_str = ["FF"] * FLASH_SIZE
 
 
-def upload_bin(uart_serial_port: serial.Serial,
-               file_path: str,
-               check_crc: int = True) -> None:
+def hex_upload_file(uart_serial_port: serial.Serial,
+                    file_path: str,
+                    check_crc: int = True) -> None:
     global period, start_time
 
-    # Verify the hex data
-    if not verify_bin(file_path):
+    # Verify the bin file
+    ret = hex_verify_file(file_path)
+    if not ret:
         print("Error in verifying the file")
         exit()
-    # Also to determine the start and end address
 
     print("==============Verify complete===================")
     # send erase
     erase_len = int(END_ADR, 16) - int(START_ADR, 16) + END_ADR_OFFSET
     erase_len = int((erase_len + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE
 
-    is_erased = send_erase_cmd(uart_serial_port, int(START_ADR, 16), erase_len)
+    is_erased = hex_uart_send_erase_cmd(uart_serial_port, int(START_ADR, 16),
+                                        erase_len, False)
     if is_erased:
         print("Flash erase success")
     else:
@@ -63,40 +64,39 @@ def upload_bin(uart_serial_port: serial.Serial,
         exit()
 
     # After successful verification, data is read and sent ============
-    with open(file_path, 'rb') as hex_file:
+    hex_file = open(file_path, 'rb')
+    total_line = hex_file.readlines()
+    hex_file.seek(0, 0)  # return cursor to start of line
 
-        n_lines = hex_file.readlines()
-        hex_file.seek(0, 0)  # return cursor to start of line
+    # read data
+    line_counter = 0
+    for line in hex_file:  # using line loop for check EOF
+        period = 0
+        line_counter += 1
+        # read line and send it
+        line_str = write_line_to_mem(line, hex_file, total_line, line_counter)
+        # send line
+        hex_uart_send_line(uart_serial_port, line_str)
 
-        # read data
-        line_counter = 0
-        for line in hex_file:  # using line loop for check EOF
-            period = 0
-            start_time = time.time()
-            line_counter += 1
-            # read line and send it
-            line_str = write_line_to_mem(line, hex_file, n_lines, line_counter)
-            # send line
-            send_line(uart_serial_port, line_str)
+        if line_counter == LINE_TO_READ:
+            break
 
-            # calculate read and send time
-            period = time.time() - start_time
-            print(" |", round(period * len(n_lines), 2), "s")
-            if line_counter == LINE_TO_READ:
-                break
+    # ==========
+    print("====================")
+    print("upload end")
+    # CRC_check
+    if not check_crc:
+        hex_file.close()
+        print("upload complete. Exiting")
+        return
 
-        # ==========
-        print("====================")
-        print("downloading end")
-        # CRC_check
-        if (check_crc):
-            print("====================")
-            print("Check crc")
-            send_crc_check(uart_serial_port, hex_file)
+    print("====================")
+    print("Check crc")
+    send_crc_check(uart_serial_port, hex_file)
 
-        # exit CRC check, downloading is completed
-        print("downloading complete. Exiting")
-        exit()
+    # exit CRC check, downloading is completed
+    print("upload complete. Exiting")
+    hex_file.close()
 
 
 def send_crc_check(u_port, hex_file):
@@ -167,7 +167,7 @@ def send_crc_check(u_port, hex_file):
                 time_out = 0
 
                 #   erase sector
-                send_erase_cmd(u_port, crc_start_addr, SECTOR_SIZE)
+                hex_uart_send_erase_cmd(u_port, crc_start_addr, SECTOR_SIZE)
                 # write sector
                 while (True):
                     # resend the hex sector  that fails crc
@@ -176,7 +176,7 @@ def send_crc_check(u_port, hex_file):
                         data_str = read_hex_sector(line, hex_file, start_ptr)
                         if data_str != None:
                             # print(data_str)
-                            send_line(u_port, data_str)
+                            hex_uart_send_line(u_port, data_str)
 
                     # calculate and send crc
 
@@ -204,46 +204,27 @@ def send_crc_check(u_port, hex_file):
                         exit()
 
 
-def verify_bin(file_path:str) -> bool:
-    global main_address, START_ADR, END_ADR
-    global is_first_read_attempt
-    global memory_str
-    global END_ADR_OFFSET
-    # read line
-    
+def hex_verify_file(file_path: str) -> bool:
     try:
         with open(file_path, 'rb') as hex_file:
             hex_file.seek(0, 0)  # return cursor to start of line
             line_counter = 0
             for line in hex_file:
-                hex_file.seek(-len(line), 1)
-                data_list = parse_hex_line(line)
+                data_list = parse_line(line)
                 start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
 
+                # check start code
                 if start_code != ":":
                     print("error, first byte is not \":\"")
                     return False
 
+                # check checksum
                 data_mask = byte_count + line_adr + record_type + datapart
                 if not verify_checksum(data_mask, checksum):
                     print("checksum not pass, recheck the HEX file")
                     return False
 
-                full_address = main_address + line_adr
-                
-                match record_type:
-                    case "04":
-                        main_address = datapart
-                    case "00":
-                        if is_first_read_attempt:
-                            START_ADR = full_address
-                            is_first_read_attempt = False
-                        elif int(START_ADR, 16) >= int(full_address, 16):
-                            START_ADR = full_address
-
-                        if int(END_ADR, 16) <= int(full_address, 16):
-                            END_ADR = full_address
-                            END_ADR_OFFSET = int(byte_count[:2], 16)
+                find_start_adr(byte_count, line_adr, record_type)
 
                 line_counter += 1
                 if line_counter == LINE_TO_READ:
@@ -251,15 +232,32 @@ def verify_bin(file_path:str) -> bool:
 
     except FileNotFoundError:
         print(f"File not found: {file_path}")
-        exit()
-    except IOError:
-        print(f"An error occurred while reading the file: {file_path}")
-        exit()
+        return False
 
     return True
-        
-        
-    
+
+
+def find_start_adr(byte_count: str, line_adr: str, record_type: str) -> None:
+
+    global main_address, START_ADR, END_ADR
+    global is_first_read_attempt
+    global memory_str
+    global END_ADR_OFFSET
+
+    full_address = main_address + line_adr
+    match record_type:
+        case "04":
+            main_address = datapart
+        case "00":
+            if is_first_read_attempt:
+                START_ADR = full_address
+                is_first_read_attempt = False
+            elif int(START_ADR, 16) >= int(full_address, 16):
+                START_ADR = full_address
+
+            if int(END_ADR, 16) <= int(full_address, 16):
+                END_ADR = full_address
+                END_ADR_OFFSET = int(byte_count[:2], 16)
 
 
 def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
@@ -293,11 +291,11 @@ def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
           len(n_line),
           "|",
           f'{round(line_ctr*100/len(n_line),2):.2f}' + "%",
-          end="")
+          end="\n")
 
     # return cursor to start of line
     hex_file.seek(-len(line_data), 1)
-    data_list = parse_hex_line(line_data)
+    data_list = parse_line(line_data)
     start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
 
     # write "binary" file here because need to determine start and end address first
@@ -322,7 +320,7 @@ def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
     return data_string
 
 
-def send_line(u_port, data_str: str):
+def hex_uart_send_line(u_port, data_str: str):
     """
     Algorithm to send hex line to UART COM
 
@@ -332,12 +330,12 @@ def send_line(u_port, data_str: str):
     data = 0
     counter = 0
     # raise is_downloading flag
-    send_data(u_port, Rq_cmd.RQ_DOWNLOAD)
+    uart_send(u_port, RequestCmd.RQ_DOWNLOAD)
     # send data
     for _ in range(int(len(data_str) / 2)):
         data = int(data_str[counter:counter + 2], base=16)
         counter += 2
-        send_data(u_port, data)
+        uart_send(u_port, data)
 
         # wait for ACK
     delay_tick(WAIT_FOR_RES)
@@ -347,10 +345,11 @@ def send_line(u_port, data_str: str):
     else:
         print("resend line...")
         delay_tick(WAIT_FOR_RES)
-        send_line(u_port, data_str)
+        hex_uart_send_line(u_port, data_str)
 
 
-def parse_hex_line(data: str) -> list:
+@staticmethod
+def parse_line(data: str) -> list:
     """
     Parse a hex line from the given file and return its components as a list.
 
@@ -367,15 +366,17 @@ def parse_hex_line(data: str) -> list:
             - list[5]: The checksum of the data.
             - list[6]: End of line characters (e.g., "\r\n").
     """
+    len = int(data[1:3].decode(), base=16) * 2
 
     return [
         data[0:1].decode(),  # Read ":"
         data[1:3].decode(),  # Read byte count
         data[3:7].decode(),  # Read address
         data[7:9].decode(),  # Read record type
-        data[9:-4].decode() if data[1:3].decode() != "00" else "",  # Read data
-        data[-4:-2].decode(),  # Read checksum
-        data[-2:].decode()  # Bypass /r/n
+        data[9:9 +
+             len].decode() if data[1:3].decode() != "00" else "",  # Read data
+        data[9 + len:11 + len].decode(),  # Read checksum
+        data[11 + len:].decode()  # Bypass /r/n
     ]
 
 
@@ -396,7 +397,7 @@ def read_hex_sector(current_line: str, hex_file: str, start_ptr: int) -> str:
     global START_ADR, main_address, byte_len
 
     hex_file.seek(-len(current_line), 1)
-    data_list = parse_hex_line(hex_file, len(current_line))
+    data_list = parse_line(hex_file, len(current_line))
 
     start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
 
