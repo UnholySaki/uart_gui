@@ -1,4 +1,4 @@
-class RecordType():
+class RecordType:
     DATA = 0x00
     EOF =0x01
     EXT_SEG_ADDR = 0x02

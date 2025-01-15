@@ -4,21 +4,14 @@ from upload.send_uart import *
 from upload.hex_uart_cmd import *
 import common.crc_32 as crc_32
 from common.memory_map import *
+from common.intel_hex_code import *
 
 global period
 global main_address
-global START_ADR
-global END_ADR
-global END_ADR_OFFSET
-global is_first_read_attempt
-global SIZE
-global memory_str
 
 LINE_TO_READ = 9999  # define number of line to read and sent
 KB = 1024  # size of KB
 
-START_ADR = "00000000"
-END_ADR = "00000000"
 main_address = "0001"
 start_code = ""
 byte_count = ""
@@ -32,11 +25,20 @@ start_time = 1
 blanking_address = "00002000"
 blanking_size = "00002000"
 
-END_ADR_OFFSET = 0
-is_first_read_attempt = True
-FLASH_SIZE = 16 * KB  # 16kB
-SECTOR_SIZE = KB
-memory_str = ["FF"] * FLASH_SIZE
+
+class MemoryMap():
+    START_ADDR = 0
+    END_ADDR = 0
+    END_ADDR_OFFSET = 0
+    main_addr = 0
+    cur_addr = 0
+    FLASH_SIZE = 16 * 1024
+    SECTOR_SIZE = 1024
+    memory_str = ["FF"] * FLASH_SIZE
+    is_first_read_attempt = True
+
+
+mem_map = MemoryMap()
 
 
 def hex_upload_file(uart_serial_port: serial.Serial,
@@ -52,11 +54,14 @@ def hex_upload_file(uart_serial_port: serial.Serial,
 
     print("==============Verify complete===================")
     # send erase
-    erase_len = int(END_ADR, 16) - int(START_ADR, 16) + END_ADR_OFFSET
-    erase_len = int((erase_len + SECTOR_SIZE - 1) / SECTOR_SIZE) * SECTOR_SIZE
+    erase_len = int(mem_map.END_ADDR, 16) - int(mem_map.START_ADDR,
+                                                16) + mem_map.END_ADDR_OFFSET
+    erase_len = int((erase_len + mem_map.SECTOR_SIZE - 1) /
+                    mem_map.SECTOR_SIZE) * mem_map.SECTOR_SIZE
 
-    is_erased = hex_uart_send_erase_cmd(uart_serial_port, int(START_ADR, 16),
-                                        erase_len, False)
+    is_erased = hex_uart_send_erase_cmd(uart_serial_port,
+                                        int(mem_map.START_ADDR, 16), erase_len,
+                                        False)
     if is_erased:
         print("Flash erase success")
     else:
@@ -75,6 +80,7 @@ def hex_upload_file(uart_serial_port: serial.Serial,
         line_counter += 1
         # read line and send it
         line_str = write_line_to_mem(line, hex_file, total_line, line_counter)
+        print(line_str)
         # send line
         hex_uart_send_line(uart_serial_port, line_str)
 
@@ -205,6 +211,10 @@ def send_crc_check(u_port, hex_file):
 
 
 def hex_verify_file(file_path: str) -> bool:
+    """
+    1. Check if the data is valid
+    2. Determine the memory map
+    """
     try:
         with open(file_path, 'rb') as hex_file:
             hex_file.seek(0, 0)  # return cursor to start of line
@@ -224,7 +234,7 @@ def hex_verify_file(file_path: str) -> bool:
                     print("checksum not pass, recheck the HEX file")
                     return False
 
-                find_start_adr(byte_count, line_adr, record_type)
+                hex_det_mem_map(byte_count, line_adr, record_type)
 
                 line_counter += 1
                 if line_counter == LINE_TO_READ:
@@ -237,27 +247,24 @@ def hex_verify_file(file_path: str) -> bool:
     return True
 
 
-def find_start_adr(byte_count: str, line_adr: str, record_type: str) -> None:
+def hex_det_mem_map(byte_count: str, line_adr: str, record_type: str) -> None:
+    """
+    determine start and end address
+    """
+    full_address = mem_map.main_addr + int(line_adr[:], base=16)
+    match int(record_type, base=16):
+        case RecordType.EXT_LIN_ADDR:
+            mem_map.main_addr = datapart
+        case RecordType.DATA:
+            if mem_map.is_first_read_attempt:
+                mem_map.START_ADDR = full_address
+                mem_map.is_first_read_attempt = False
+            elif mem_map.START_ADDR >= full_address:
+                mem_map.START_ADDR = full_address
 
-    global main_address, START_ADR, END_ADR
-    global is_first_read_attempt
-    global memory_str
-    global END_ADR_OFFSET
-
-    full_address = main_address + line_adr
-    match record_type:
-        case "04":
-            main_address = datapart
-        case "00":
-            if is_first_read_attempt:
-                START_ADR = full_address
-                is_first_read_attempt = False
-            elif int(START_ADR, 16) >= int(full_address, 16):
-                START_ADR = full_address
-
-            if int(END_ADR, 16) <= int(full_address, 16):
-                END_ADR = full_address
-                END_ADR_OFFSET = int(byte_count[:2], 16)
+            if mem_map.END_ADDR <= full_address:
+                mem_map.END_ADDR = full_address
+                mem_map.END_ADDR_OFFSET = int(byte_count[:2], 16)
 
 
 def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
@@ -294,7 +301,7 @@ def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
           end="\n")
 
     # return cursor to start of line
-    hex_file.seek(-len(line_data), 1)
+    #hex_file.seek(-len(line_data), 1)
     data_list = parse_line(line_data)
     start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
 
@@ -311,6 +318,7 @@ def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
         j = 0
         # First read attempt to initialize data address value
         for i in range(int(byte_count[j:j + 2], base=16)):
+            print(current_adr, start_adr, i)
             memory_str[current_adr - start_adr + i] = datapart[j:j + 2]
             j += 2
 
