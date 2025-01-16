@@ -1,41 +1,20 @@
 import time
 import os
-from upload.send_uart import *
+from upload.common import MemoryMap
 from upload.hex_uart_cmd import *
-import common.crc_32 as crc_32
+import thirdparties.py_library.utils.crc as crc_32
 from common.memory_map import *
 from common.intel_hex_code import *
 
-global period
-global main_address
+
 
 LINE_TO_READ = 9999  # define number of line to read and sent
 KB = 1024  # size of KB
 
-main_address = "0001"
-start_code = ""
-byte_count = ""
-line_adr = ""
-record_type = ""
-datapart = ""
-checksum = ""
-data_EOL = ""
-start_time = 1
 
 blanking_address = "00002000"
 blanking_size = "00002000"
 
-
-class MemoryMap():
-    START_ADDR = 0
-    END_ADDR = 0
-    END_ADDR_OFFSET = 0
-    main_addr = 0
-    cur_addr = 0
-    FLASH_SIZE = 16 * 1024
-    SECTOR_SIZE = 1024
-    memory_str = ["FF"] * FLASH_SIZE
-    is_first_read_attempt = True
 
 
 mem_map = MemoryMap()
@@ -44,97 +23,191 @@ mem_map = MemoryMap()
 def hex_upload_file(uart_serial_port: serial.Serial,
                     file_path: str,
                     check_crc: int = True) -> None:
-    global period, start_time
-
-    # Verify the bin file
+    print("==============Upload start===================")
+    # 1. Verify the bin file
     ret = hex_verify_file(file_path)
     if not ret:
         print("Error in verifying the file")
         exit()
 
     print("==============Verify complete===================")
-    # send erase
-    erase_len = int(mem_map.END_ADDR, 16) - int(mem_map.START_ADDR,
-                                                16) + mem_map.END_ADDR_OFFSET
+    # 2. Send erase
+    erase_len = mem_map.END_ADDR - mem_map.START_ADDR + mem_map.END_ADDR_OFFSET
     erase_len = int((erase_len + mem_map.SECTOR_SIZE - 1) /
                     mem_map.SECTOR_SIZE) * mem_map.SECTOR_SIZE
 
-    is_erased = hex_uart_send_erase_cmd(uart_serial_port,
-                                        int(mem_map.START_ADDR, 16), erase_len,
-                                        False)
-    if is_erased:
-        print("Flash erase success")
-    else:
+    success = hex_uart_send_erase_cmd(uart_serial_port, mem_map.START_ADDR,
+                                      erase_len, False)
+    if not success:
         print("Fail to erase before downloading")
         exit()
 
-    # After successful verification, data is read and sent ============
+    print("==============Image is cleared===================")
+    # 3. data is read and sent
     hex_file = open(file_path, 'rb')
-    total_line = hex_file.readlines()
-    hex_file.seek(0, 0)  # return cursor to start of line
 
     # read data
-    line_counter = 0
     for line in hex_file:  # using line loop for check EOF
-        period = 0
-        line_counter += 1
         # read line and send it
-        line_str = write_line_to_mem(line, hex_file, total_line, line_counter)
-        print(line_str)
-        # send line
-        hex_uart_send_line(uart_serial_port, line_str)
+        line_list = parse_hex_line(line)
+        store_hex_line_data(line_list)
+        hex_uart_send_line(uart_serial_port, line_list)
 
-        if line_counter == LINE_TO_READ:
-            break
+        # retry
+        while True:
+            delay_tick(WAIT_FOR_RES)
+            if (uart_read_resp(uart_serial_port)):
+                break
+            else:
+                print("resend line...")
+                hex_uart_send_line(uart_serial_port, line_list)
 
-    # ==========
-    print("====================")
-    print("upload end")
-    # CRC_check
+    print("==============Upload success===================")
+    # 4. CRC_check
     if not check_crc:
         hex_file.close()
         print("upload complete. Exiting")
         return
 
-    print("====================")
-    print("Check crc")
-    send_crc_check(uart_serial_port, hex_file)
+    hex_uart_send_crc_check(uart_serial_port, hex_file)
+    print("==============Verify success===================")
 
-    # exit CRC check, downloading is completed
-    print("upload complete. Exiting")
+    # 5. Exiting
     hex_file.close()
+    print("==============Done uploading===================")
+
+@staticmethod
+def hex_verify_file(file_path: str) -> bool:
+    """
+    1. Check if the data is valid
+    2. Determine the memory map
+    """
+    try:
+        with open(file_path, 'rb') as hex_file:
+            hex_file.seek(0, 0)  # return cursor to start of line
+            for line in hex_file:
+                line_list = parse_hex_line(line)
+
+                # check start code
+                if line_list[0] != ":":
+                    print("error, first byte is not \":\"")
+                    return False
+
+                # check checksum
+                checksum_data = str(line_list[1] + line_list[2] +
+                                    line_list[3] + line_list[4])
+                if not verify_checksum(checksum_data, line_list[5]):
+                    print("checksum not pass, recheck the HEX file")
+                    return False
+
+                hex_det_mem_map(line_list)
+
+    except FileNotFoundError:
+        print(f"File not found: {file_path}")
+        return False
+
+    print(f"Memory Map:\
+            \nSTART_ADDR={mem_map.START_ADDR},\
+            \nEND_ADDR={mem_map.END_ADDR},\
+            \nEND_ADDR_OFFSET={mem_map.END_ADDR_OFFSET},\
+            \nmain_addr={mem_map.main_addr}")
+    return True
+
+@staticmethod
+def hex_det_mem_map(line_list: list) -> None:
+    """
+    determine start and end address
+    """
+    num_of_bytes, addr, type, data = line_list[1:5]
+
+    print(addr, int(addr, base=16))
+    full_address = mem_map.main_addr + int(addr, base=16)
+    match int(type, base=16):
+        case RecordType.EXT_LIN_ADDR:
+            # determine the start address
+            if data != None:
+                mem_map.main_addr = int(data, base=16) << 4
+        case RecordType.DATA:
+            if mem_map.is_first_read_attempt:
+                mem_map.START_ADDR = full_address
+                mem_map.is_first_read_attempt = False
+                return
+
+            if mem_map.START_ADDR >= full_address:
+                mem_map.START_ADDR = full_address
+            if mem_map.END_ADDR <= full_address:
+                mem_map.END_ADDR = full_address
+                mem_map.END_ADDR_OFFSET = int(num_of_bytes, 16)
+
+@staticmethod
+def store_hex_line_data(line_list: list) -> None:
+    num_of_bytes, addr, type, data = line_list[1:5]
+
+    cur_addr = mem_map.main_addr + int(addr, base=16)
+    # write to memory bin
+    match int(type, base=16):
+        case RecordType.DATA:
+            j = 0
+            # First read attempt to initialize data address value
+            for i in range(int(num_of_bytes, base=16)):
+                mem_map.image_str[cur_addr - mem_map.START_ADDR +
+                                  i] = data[j:j + 2]
+                j += 2
+        case _:
+            pass
+
+    return
+
+@staticmethod
+def hex_uart_send_line(u_port, line_list: list):
+    """
+    Algorithm to send hex line to UART COM
+
+    Args:
+        data_str (str): Individual line from the hex file.
+    """
+    data = 0
+    counter = 0
+    line_str = str(line_list[1] + line_list[2] + line_list[3] + line_list[4] +
+                   line_list[5])
+    # raise is_downloading flag
+    uart_send(u_port, RequestCmd.RQ_DOWNLOAD)
+    # send data
+    for _ in range(int(len(line_str) / 2)):
+        data = int(line_str[counter:counter + 2], base=16)
+        counter += 2
+        uart_send(u_port, data)
 
 
-def send_crc_check(u_port, hex_file):
+@staticmethod
+def hex_uart_send_crc_check(u_port, hex_file):
     # define variable
-    global memory_str, END_ADR, START_ADR, END_ADR_OFFSET
 
-    crc_start_addr = int(START_ADR, 16)
-    memory_byte_list = []
+    crc_start_addr = mem_map.START_ADDR
+
+    #print(mem_map.image_str)
     # build memory list with each element is a byte
-
-    for element in memory_str:
-        memory_byte_list.append(int(element, base=16))
+    for element in mem_map.image_str:
+        mem_map.image_byte_list.append(int(element, base=16))
 
     # check crc whole image first
 
-    end_ptr = int(END_ADR, 16) - int(START_ADR, 16) + END_ADR_OFFSET
-    image_crc = crc_32.crc32(memory_byte_list[:end_ptr])
-    # print(memory_byte_list[:end_ptr])
+    end_ptr = mem_map.END_ADDR - mem_map.START_ADDR + mem_map.END_ADDR_OFFSET
+    image_crc = crc_32.crc32(mem_map.image_byte_list[:end_ptr])
+
     print("====================")
-    print("start adr: ", START_ADR)
-    print("end adr: ", END_ADR)
-    print("end address offset: ", END_ADR_OFFSET)
+    print("start adr: ", mem_map.START_ADDR)
+    print("end adr: ", mem_map.END_ADDR)
+    print("end address offset: ", mem_map.END_ADDR_OFFSET)
     print("end pointer is: ", end_ptr)
     print("image crc: ", image_crc)
     print("====================")
 
     send_crc_cmd(u_port, crc_start_addr, end_ptr, image_crc)
-
     delay_tick(WAIT_FOR_RES)
 
     # if fail, check crc for each individual sector
-    if is_sent_success(u_port):
+    if uart_read_resp(u_port):
         pass
     else:
         is_reach_end = False
@@ -147,11 +220,11 @@ def send_crc_check(u_port, hex_file):
             crc_len = end_ptr - start_ptr
             if test_case_1 == 1:
                 sector_crc = crc_32.crc32(
-                    memory_byte_list[start_ptr:start_ptr + crc_len - 1])
+                    mem_map.image_byte_list[start_ptr:start_ptr + crc_len - 1])
                 test_case_1 += 10
             else:
                 sector_crc = crc_32.crc32(
-                    memory_byte_list[start_ptr:start_ptr + crc_len])
+                    mem_map.image_byte_list[start_ptr:start_ptr + crc_len])
                 test_case_1 += 1
 
             print("Prepare to send: ", crc_start_addr, crc_len)
@@ -161,7 +234,7 @@ def send_crc_check(u_port, hex_file):
 
             delay_tick(WAIT_FOR_RES)
 
-            if (is_sent_success(u_port)):
+            if (uart_read_resp(u_port)):
                 if is_reach_end == True:
                     break
 
@@ -173,7 +246,8 @@ def send_crc_check(u_port, hex_file):
                 time_out = 0
 
                 #   erase sector
-                hex_uart_send_erase_cmd(u_port, crc_start_addr, SECTOR_SIZE)
+                hex_uart_send_erase_cmd(u_port, crc_start_addr,
+                                        mem_map.SECTOR_SIZE)
                 # write sector
                 while (True):
                     # resend the hex sector  that fails crc
@@ -189,12 +263,12 @@ def send_crc_check(u_port, hex_file):
                     print(start_ptr, end_ptr, crc_len)
                     crc_len = end_ptr - start_ptr
                     sector_crc = crc_32.crc32(
-                        memory_byte_list[start_ptr:start_ptr + crc_len])
+                        mem_map.image_byte_list[start_ptr:start_ptr + crc_len])
 
                     send_crc_cmd(u_port, crc_start_addr, crc_len, sector_crc)
                     delay_tick(WAIT_FOR_RES)
 
-                    if (is_sent_success(u_port)):
+                    if (uart_read_resp(u_port)):
                         if is_reach_end == True:
                             print("Read end, exiting")
                             exit()
@@ -210,184 +284,42 @@ def send_crc_check(u_port, hex_file):
                         exit()
 
 
-def hex_verify_file(file_path: str) -> bool:
+@staticmethod
+def move_ptr(s_adr: int, e_adr: int, sector_size) -> list:
     """
-    1. Check if the data is valid
-    2. Determine the memory map
-    """
-    try:
-        with open(file_path, 'rb') as hex_file:
-            hex_file.seek(0, 0)  # return cursor to start of line
-            line_counter = 0
-            for line in hex_file:
-                data_list = parse_line(line)
-                start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
-
-                # check start code
-                if start_code != ":":
-                    print("error, first byte is not \":\"")
-                    return False
-
-                # check checksum
-                data_mask = byte_count + line_adr + record_type + datapart
-                if not verify_checksum(data_mask, checksum):
-                    print("checksum not pass, recheck the HEX file")
-                    return False
-
-                hex_det_mem_map(byte_count, line_adr, record_type)
-
-                line_counter += 1
-                if line_counter == LINE_TO_READ:
-                    break
-
-    except FileNotFoundError:
-        print(f"File not found: {file_path}")
-        return False
-
-    return True
-
-
-def hex_det_mem_map(byte_count: str, line_adr: str, record_type: str) -> None:
-    """
-    determine start and end address
-    """
-    full_address = mem_map.main_addr + int(line_adr[:], base=16)
-    match int(record_type, base=16):
-        case RecordType.EXT_LIN_ADDR:
-            mem_map.main_addr = datapart
-        case RecordType.DATA:
-            if mem_map.is_first_read_attempt:
-                mem_map.START_ADDR = full_address
-                mem_map.is_first_read_attempt = False
-            elif mem_map.START_ADDR >= full_address:
-                mem_map.START_ADDR = full_address
-
-            if mem_map.END_ADDR <= full_address:
-                mem_map.END_ADDR = full_address
-                mem_map.END_ADDR_OFFSET = int(byte_count[:2], 16)
-
-
-def write_line_to_mem(line_data: str, hex_file: str, n_line: int,
-                      line_ctr: int) -> str:
-    """
-    Algorithm to read line of hex data. Additionally printing out
-    downloading speed
+    Move the pointer between start and end addresses, ensuring the pointer does not exceed 
+    the image's end address. Adjusts the pointers based on the sector size.
 
     Args:
-        line_data (str): Individual line from the hex file.
-        hex_file (str): Path to the selected hex file.
-        total_line (int): Total number of hex lines.
-        line_counter (int): Counter to track the current line.
+        s_adr (int): The current start address pointer.
+        e_adr (int): The current end address pointer.
+        sector_size (int): The size of the sector to process.
 
     Returns:
-        str: The function returns the entire data string, including:
-            - Data address
-            - Data string
-            - Data checksum
-            - Data CRC checksum
-            - CRC for the whole image
+        list: A list containing:
+            - The updated start address (`s_adr`).
+            - The updated end address (`e_adr`).
+            - A boolean flag `is_reach_end` indicating if the pointer reached the image's end.
     """
-    global period
-    global main_address, START_ADR, END_ADR
-    global is_first_read_attempt
-    global memory_str
+    global START_ADR, END_ADR, END_ADR_OFFSET
+    element_size = 1  # each element is 2 bytes
+    chunk_size = int(sector_size / element_size)
+    is_reach_end = False
 
-    # Output to terminal current download progress
-    print(line_ctr,
-          "/",
-          len(n_line),
-          "|",
-          f'{round(line_ctr*100/len(n_line),2):.2f}' + "%",
-          end="\n")
+    s_adr = e_adr
+    e_adr = s_adr + chunk_size
+    # check if end address reach end
+    image_end_address = (int(END_ADR, 16) - int(START_ADR, 16))
 
-    # return cursor to start of line
-    #hex_file.seek(-len(line_data), 1)
-    data_list = parse_line(line_data)
-    start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
+    if (e_adr > image_end_address):
+        e_adr = image_end_address + END_ADR_OFFSET
+        is_reach_end = True
 
-    # write "binary" file here because need to determine start and end address first
-
-    full_address = main_address + line_adr
-    start_adr = int(START_ADR, 16)
-    current_adr = int(full_address, 16)
-    # write to memory bin
-    if record_type == "04":
-        main_address = datapart
-    # if indicating data, save start and end address
-    elif record_type == "00":
-        j = 0
-        # First read attempt to initialize data address value
-        for i in range(int(byte_count[j:j + 2], base=16)):
-            print(current_adr, start_adr, i)
-            memory_str[current_adr - start_adr + i] = datapart[j:j + 2]
-            j += 2
-
-    # prepare for line checksum
-    data_string = byte_count + line_adr + record_type + datapart + checksum
-
-    return data_string
-
-
-def hex_uart_send_line(u_port, data_str: str):
-    """
-    Algorithm to send hex line to UART COM
-
-    Args:
-        data_str (str): Individual line from the hex file.
-    """
-    data = 0
-    counter = 0
-    # raise is_downloading flag
-    uart_send(u_port, RequestCmd.RQ_DOWNLOAD)
-    # send data
-    for _ in range(int(len(data_str) / 2)):
-        data = int(data_str[counter:counter + 2], base=16)
-        counter += 2
-        uart_send(u_port, data)
-
-        # wait for ACK
-    delay_tick(WAIT_FOR_RES)
-
-    if (is_sent_success(u_port)):
-        pass
-    else:
-        print("resend line...")
-        delay_tick(WAIT_FOR_RES)
-        hex_uart_send_line(u_port, data_str)
+    print(s_adr, e_adr, image_end_address)
+    return [s_adr, e_adr, is_reach_end]
 
 
 @staticmethod
-def parse_line(data: str) -> list:
-    """
-    Parse a hex line from the given file and return its components as a list.
-
-    Args:
-        data (str): The data string to be parsed.
-        
-    Returns:
-        List[str]: A list containing the parsed components of the hex line:
-            - list[0]: The start delimiter, always ":".
-            - list[1]: The byte count of the data part.
-            - list[2]: The address where the data is stored.
-            - list[3]: The record type (e.g., data, end of file).
-            - list[4]: The data part of the line.
-            - list[5]: The checksum of the data.
-            - list[6]: End of line characters (e.g., "\r\n").
-    """
-    len = int(data[1:3].decode(), base=16) * 2
-
-    return [
-        data[0:1].decode(),  # Read ":"
-        data[1:3].decode(),  # Read byte count
-        data[3:7].decode(),  # Read address
-        data[7:9].decode(),  # Read record type
-        data[9:9 +
-             len].decode() if data[1:3].decode() != "00" else "",  # Read data
-        data[9 + len:11 + len].decode(),  # Read checksum
-        data[11 + len:].decode()  # Bypass /r/n
-    ]
-
-
 def read_hex_sector(current_line: str, hex_file: str, start_ptr: int) -> str:
     """
     Reads and processes a sector of hex data from the given file
@@ -405,7 +337,7 @@ def read_hex_sector(current_line: str, hex_file: str, start_ptr: int) -> str:
     global START_ADR, main_address, byte_len
 
     hex_file.seek(-len(current_line), 1)
-    data_list = parse_line(hex_file, len(current_line))
+    data_list = parse_hex_line(hex_file, len(current_line))
 
     start_code, byte_count, line_adr, record_type, datapart, checksum, eol = data_list
 
@@ -439,90 +371,33 @@ def read_hex_sector(current_line: str, hex_file: str, start_ptr: int) -> str:
     return None
 
 
-def crc16_ccitt_false(data_list: list[int]) -> int:
+@staticmethod
+def parse_hex_line(data: str) -> list:
     """
-    Calculate the CRC-16-CCITT (False) checksum for a given list of 16-bit integers.
+    Parse a hex line from the given file and return its components as a list.
 
     Args:
-        data_list (list[int]): A list of 16-bit integer values to be processed.
-
+        data (str): The data string to be parsed.
+        
     Returns:
-        int: The calculated CRC-16-CCITT (False) checksum as a 16-bit integer.
+        List[str]: A list containing the parsed components of the hex line:
+            - list[0]: The start delimiter, always ":".
+            - list[1]: The byte count of the data part.
+            - list[2]: The address where the data is stored.
+            - list[3]: The record type (e.g., data, end of file).
+            - list[4]: The data part of the line.
+            - list[5]: The checksum of the data.
+            - list[6]: End of line characters (e.g., "\r\n").
     """
-    # Parameters for CRC-16-CCITT (False)
-    polynomial = 0x1021
-    crc = 0xFFFF
+    len = int(data[1:3].decode(), base=16) * 2
 
-    # Convert the list of 16-bit values into bytes (2 bytes per value, big-endian order)
-    data = b''.join(
-        value.to_bytes(2, byteorder='little') for value in data_list)
-
-    # Process each byte
-    for byte in data:
-        crc ^= (byte << 8)  # XOR byte into the upper 8 bits of CRC
-        for _ in range(8):
-            if crc & 0x8000:  # if the uppermost bit is set
-                crc = (crc << 1) ^ polynomial
-            else:
-                crc <<= 1
-            crc &= 0xFFFF  # Trim CRC to 16 bits
-
-    return crc
-
-
-def str_list_to_byte_list(str_list: list[str]):
-    """
-    Convert a list of string of hexadecimal values into a list of 16-bit integers in big-endian format.
-
-    Args:
-        string (str): A list of string containing hexadecimal values where each two characters 
-                      represent a byte (e.g., ["0A0B", "0C0D"] for two bytes).
-
-    Returns:
-        list[int]: A list of 16-bit integers where each pair of hexadecimal characters 
-                   is combined into a 16-bit value in little-endian format.
-                   For example, "0A0B" becomes 0x0A0B.
-    """
-    counter = 0
-    byte_list = []
-    for i in range(int(len(str_list) / 2)):
-        byte_list.append(i)
-        byte_list[i] = int(str_list[counter + 1], base=16)
-        byte_list[i] = byte_list[i] * 0x100 + int(str_list[counter], base=16)
-        counter += 2
-
-    return byte_list
-
-
-def move_ptr(s_adr: int, e_adr: int, sector_size) -> list:
-    """
-    Move the pointer between start and end addresses, ensuring the pointer does not exceed 
-    the image's end address. Adjusts the pointers based on the sector size.
-
-    Args:
-        s_adr (int): The current start address pointer.
-        e_adr (int): The current end address pointer.
-        sector_size (int): The size of the sector to process.
-
-    Returns:
-        list: A list containing:
-            - The updated start address (`s_adr`).
-            - The updated end address (`e_adr`).
-            - A boolean flag `is_reach_end` indicating if the pointer reached the image's end.
-    """
-    global START_ADR, END_ADR, END_ADR_OFFSET
-    element_size = 1  # each element is 2 bytes
-    chunk_size = int(sector_size / element_size)
-    is_reach_end = False
-
-    s_adr = e_adr
-    e_adr = s_adr + chunk_size
-    # check if end address reach end
-    image_end_address = (int(END_ADR, 16) - int(START_ADR, 16))
-
-    if (e_adr > image_end_address):
-        e_adr = image_end_address + END_ADR_OFFSET
-        is_reach_end = True
-
-    print(s_adr, e_adr, image_end_address)
-    return [s_adr, e_adr, is_reach_end]
+    return [
+        data[0:1].decode(),  # Read ":"
+        data[1:3].decode(),  # Read byte count
+        data[3:7].decode(),  # Read address
+        data[7:9].decode(),  # Read record type
+        data[9:9 +
+             len].decode() if data[1:3].decode() != "00" else "",  # Read data
+        data[9 + len:11 + len].decode(),  # Read checksum
+        data[11 + len:].decode()  # Bypass /r/n
+    ]

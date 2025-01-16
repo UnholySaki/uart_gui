@@ -1,11 +1,12 @@
 import serial
 
 from common.uart_code import *
-from upload.send_uart import *
+from upload.common_cmd import *
+from uart.uart import *
 
 
 def hex_uart_send_erase_cmd(uart_port: serial.Serial, s_adr, size,
-                        is_check_resp: bool) -> bool:
+                            is_check_resp: bool) -> bool:
     """
     Send erase command to MCU. Including starting address and size of memory to be erased.
 
@@ -18,11 +19,6 @@ def hex_uart_send_erase_cmd(uart_port: serial.Serial, s_adr, size,
         bool: True if MCU is erased successfully, or memory is already clean. \
             False if not getting erase successful response.
     """
-    print("====================")
-    print(f"[{__name__} -> {hex_uart_send_erase_cmd.__name__}]")
-    print("start adr: ", s_adr)
-    print("len: ", size)
-    print("====================")
 
     hex_uart_send_cmd(RequestCmd.RQ_CHECK_BLANKING, uart_port, s_adr, size)
 
@@ -37,7 +33,7 @@ def hex_uart_send_erase_cmd(uart_port: serial.Serial, s_adr, size,
 
 
 def hex_uart_send_check_blank_cmd(uart_port: serial.Serial, s_adr, size,
-                              is_check_resp: bool) -> bool:
+                                  is_check_resp: bool) -> bool:
     """
     Check blanking of memory range based on starting address and memory length
 
@@ -49,12 +45,6 @@ def hex_uart_send_check_blank_cmd(uart_port: serial.Serial, s_adr, size,
     Returns:
         bool: True if memory range is clean. False if it is dirty.
     """
-
-    print("====================")
-    print(f"[{__name__} -> {hex_uart_send_check_blank_cmd.__name__}]")
-    print("start adr: ", s_adr)
-    print("len: ", size)
-    print("====================")
 
     hex_uart_send_cmd(RequestCmd.RQ_CHECK_BLANKING, uart_port, s_adr, size)
 
@@ -70,7 +60,7 @@ def hex_uart_send_check_blank_cmd(uart_port: serial.Serial, s_adr, size,
 
 @staticmethod
 def hex_uart_send_cmd(cmd: RequestCmd, uart_port: serial.Serial, s_adr,
-                  size) -> bool:
+                      size) -> bool:
     """
     Prepare address and size lists for sending data.
     
@@ -131,7 +121,7 @@ def hex_uart_send_cmd(cmd: RequestCmd, uart_port: serial.Serial, s_adr,
 def hex_uart_read_resp(cmd: RequestCmd, uart_port, s_adr, size):
     counter = 0
     while (True):
-        if (is_sent_success(uart_port)):
+        if (uart_read_resp(uart_port)):
             return True
         else:  # retry
             print(f"Erased failed, resend. Try: {counter}")
