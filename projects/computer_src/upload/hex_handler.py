@@ -6,19 +6,11 @@ import thirdparties.py_library.utils.crc as crc_32
 from common.memory_map import *
 from common.intel_hex_code import *
 
-
-
 LINE_TO_READ = 9999  # define number of line to read and sent
 KB = 1024  # size of KB
 
 
-blanking_address = "00002000"
-blanking_size = "00002000"
-
-
-
 mem_map = MemoryMap()
-
 
 def hex_upload_file(uart_serial_port: serial.Serial,
                     file_path: str,
@@ -69,12 +61,16 @@ def hex_upload_file(uart_serial_port: serial.Serial,
         print("upload complete. Exiting")
         return
 
-    hex_uart_send_crc_check(uart_serial_port, hex_file)
+    ret = hex_uart_send_crc_ovr(uart_serial_port, hex_file)
+    if ret < 0:
+        print("[Fail] Check CRC whole image failed, retry for each sector")
+        hex_uart_send_crc_sector(uart_serial_port, hex_file)
     print("==============Verify success===================")
 
     # 5. Exiting
     hex_file.close()
     print("==============Done uploading===================")
+
 
 @staticmethod
 def hex_verify_file(file_path: str) -> bool:
@@ -113,6 +109,7 @@ def hex_verify_file(file_path: str) -> bool:
             \nmain_addr={mem_map.main_addr}")
     return True
 
+
 @staticmethod
 def hex_det_mem_map(line_list: list) -> None:
     """
@@ -139,6 +136,7 @@ def hex_det_mem_map(line_list: list) -> None:
                 mem_map.END_ADDR = full_address
                 mem_map.END_ADDR_OFFSET = int(num_of_bytes, 16)
 
+
 @staticmethod
 def store_hex_line_data(line_list: list) -> None:
     num_of_bytes, addr, type, data = line_list[1:5]
@@ -157,6 +155,7 @@ def store_hex_line_data(line_list: list) -> None:
             pass
 
     return
+
 
 @staticmethod
 def hex_uart_send_line(u_port, line_list: list):
@@ -180,18 +179,19 @@ def hex_uart_send_line(u_port, line_list: list):
 
 
 @staticmethod
-def hex_uart_send_crc_check(u_port, hex_file):
-    # define variable
-
+def hex_uart_send_crc_ovr(u_port: serial.Serial) -> int:
+    """
+    check the whole image
+    """
     crc_start_addr = mem_map.START_ADDR
 
-    #print(mem_map.image_str)
+    # print(mem_map.image_str)
     # build memory list with each element is a byte
+    # convert from string to byte becuase crc32 check on bytes
     for element in mem_map.image_str:
         mem_map.image_byte_list.append(int(element, base=16))
 
     # check crc whole image first
-
     end_ptr = mem_map.END_ADDR - mem_map.START_ADDR + mem_map.END_ADDR_OFFSET
     image_crc = crc_32.crc32(mem_map.image_byte_list[:end_ptr])
 
@@ -204,84 +204,71 @@ def hex_uart_send_crc_check(u_port, hex_file):
     print("====================")
 
     send_crc_cmd(u_port, crc_start_addr, end_ptr, image_crc)
-    delay_tick(WAIT_FOR_RES)
 
     # if fail, check crc for each individual sector
     if uart_read_resp(u_port):
-        pass
+        return RET_CODE.CRC_PASS
     else:
-        is_reach_end = False
-        element_size = 1  # each element is 2 bytes
-        chunk_size = int(KB / element_size)
-        start_ptr = 0
-        end_ptr = start_ptr + chunk_size
-        test_case_1 = 10
-        while (True):
-            crc_len = end_ptr - start_ptr
-            if test_case_1 == 1:
-                sector_crc = crc_32.crc32(
-                    mem_map.image_byte_list[start_ptr:start_ptr + crc_len - 1])
-                test_case_1 += 10
-            else:
-                sector_crc = crc_32.crc32(
-                    mem_map.image_byte_list[start_ptr:start_ptr + crc_len])
-                test_case_1 += 1
+        return RET_CODE.CRC_FAIL
 
-            print("Prepare to send: ", crc_start_addr, crc_len)
-            send_crc_cmd(u_port, crc_start_addr, crc_len, sector_crc)
 
-            crc_start_addr += chunk_size
+def hex_uart_send_crc_sector(u_port: serial.Serial, hex_file) -> int:
+    element_size = 1  # each element is 2 bytes
+    chunk_size = int(KB / element_size)
 
-            delay_tick(WAIT_FOR_RES)
+    for crc_start_addr in range(mem_map.START_ADDR,
+                                mem_map.END_ADDR + mem_map.END_ADDR_OFFSET,
+                                chunk_size):
+        end_ptr = crc_start_addr + chunk_size
+        if end_ptr > mem_map.END_ADDR + mem_map.END_ADDR_OFFSET:
+            end_ptr = mem_map.END_ADDR + mem_map.END_ADDR_OFFSET
+        crc_len = end_ptr - crc_start_addr
 
-            if (uart_read_resp(u_port)):
-                if is_reach_end == True:
-                    break
+        sector_crc = crc_32.crc32(
+            mem_map.image_byte_list[crc_start_addr:crc_start_addr + crc_len])
 
-                start_ptr, end_ptr, is_reach_end = move_ptr(
-                    start_ptr, end_ptr, KB)
+        print("Prepare to send: ", crc_start_addr, crc_len)
+        send_crc_cmd(u_port, crc_start_addr, crc_len, sector_crc)
 
-            # if fail crc check, enter resend and crc check loop
-            else:
-                time_out = 0
+        delay_tick(WAIT_FOR_RES)
 
-                #   erase sector
-                hex_uart_send_erase_cmd(u_port, crc_start_addr,
-                                        mem_map.SECTOR_SIZE)
-                # write sector
-                while (True):
-                    # resend the hex sector  that fails crc
-                    hex_file.seek(0, 0)
-                    for line in hex_file:  # using line loop for check EOF
-                        data_str = read_hex_sector(line, hex_file, start_ptr)
-                        if data_str != None:
-                            # print(data_str)
-                            hex_uart_send_line(u_port, data_str)
+        if uart_read_resp(u_port) == False:
+            handle_crc_check_failure(u_port, hex_file, crc_start_addr, end_ptr,
+                                     crc_start_addr, chunk_size)
 
-                    # calculate and send crc
 
-                    print(start_ptr, end_ptr, crc_len)
-                    crc_len = end_ptr - start_ptr
-                    sector_crc = crc_32.crc32(
-                        mem_map.image_byte_list[start_ptr:start_ptr + crc_len])
+def handle_crc_check_failure(u_port, hex_file, start_ptr, end_ptr,
+                             crc_start_addr, chunk_size):
+    time_out = 0
 
-                    send_crc_cmd(u_port, crc_start_addr, crc_len, sector_crc)
-                    delay_tick(WAIT_FOR_RES)
+    hex_uart_send_erase_cmd(u_port, crc_start_addr, mem_map.SECTOR_SIZE)
 
-                    if (uart_read_resp(u_port)):
-                        if is_reach_end == True:
-                            print("Read end, exiting")
-                            exit()
-                        # move start and end address to 1 sector
-                        start_ptr, end_ptr, is_reach_end = move_ptr(
-                            start_ptr, end_ptr, KB)
-                        time_out = 0
-                        break
-                    else:
-                        time_out += 1
-                    if time_out >= 10:
-                        print("CRC fails, exiting")
-                        exit()
+    while True:
+        hex_file.seek(0, 0)
+        for line in hex_file:
+            data_str = read_hex_sector(line, hex_file, start_ptr)
+            if data_str:
+                hex_uart_send_line(u_port, data_str)
+
+        crc_len = end_ptr - start_ptr
+        sector_crc = crc_32.crc32(mem_map.image_byte_list[start_ptr:start_ptr +
+                                                          crc_len])
+
+        send_crc_cmd(u_port, crc_start_addr, crc_len, sector_crc)
+        delay_tick(WAIT_FOR_RES)
+
+        if uart_read_resp(u_port):
+            if is_reach_end:
+                print("Read end, exiting")
+                exit()
+            start_ptr, end_ptr, is_reach_end = move_ptr(start_ptr, end_ptr, KB)
+            time_out = 0
+            break
+        else:
+            time_out += 1
+        if time_out >= 10:
+            print("CRC fails, exiting")
+            exit()
 
 
 @staticmethod

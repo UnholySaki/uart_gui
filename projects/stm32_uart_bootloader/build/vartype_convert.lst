@@ -1,0 +1,293 @@
+ARM GAS  C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"vartype_convert.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              		.file 1 "Core/Src/vartype_convert.c"
+  18              		.section	.text.int_to_str,"ax",%progbits
+  19              		.align	1
+  20              		.global	int_to_str
+  21              		.syntax unified
+  22              		.thumb
+  23              		.thumb_func
+  25              	int_to_str:
+  26              	.LVL0:
+  27              	.LFB65:
+   1:Core/Src/vartype_convert.c **** #include "vartype_convert.h"
+   2:Core/Src/vartype_convert.c **** 
+   3:Core/Src/vartype_convert.c **** /**
+   4:Core/Src/vartype_convert.c ****  * @brief Convert interger type to String type
+   5:Core/Src/vartype_convert.c ****  * @param num ref number to copy into string
+   6:Core/Src/vartype_convert.c ****  * @param str string/array that will be modified
+   7:Core/Src/vartype_convert.c ****  */
+   8:Core/Src/vartype_convert.c **** void int_to_str(int num, uint8_t *str)
+   9:Core/Src/vartype_convert.c **** {
+  28              		.loc 1 9 1 view -0
+  29              		.cfi_startproc
+  30              		@ args = 0, pretend = 0, frame = 0
+  31              		@ frame_needed = 0, uses_anonymous_args = 0
+  32              		@ link register save eliminated.
+  33              		.loc 1 9 1 is_stmt 0 view .LVU1
+  34 0000 30B4     		push	{r4, r5}
+  35              	.LCFI0:
+  36              		.cfi_def_cfa_offset 8
+  37              		.cfi_offset 4, -8
+  38              		.cfi_offset 5, -4
+  10:Core/Src/vartype_convert.c ****   uint8_t i = 0;
+  39              		.loc 1 10 3 is_stmt 1 view .LVU2
+  40              	.LVL1:
+  11:Core/Src/vartype_convert.c ****   uint8_t is_negative = 0;
+  41              		.loc 1 11 3 view .LVU3
+  12:Core/Src/vartype_convert.c **** 
+  13:Core/Src/vartype_convert.c ****   // Handle negative number
+  14:Core/Src/vartype_convert.c ****   if (num < 0)
+  42              		.loc 1 14 3 view .LVU4
+  43              		.loc 1 14 6 is_stmt 0 view .LVU5
+  44 0002 0028     		cmp	r0, #0
+ARM GAS  C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s 			page 2
+
+
+  45              		.loc 1 14 6 view .LVU6
+  46 0004 22DB     		blt	.L9
+  11:Core/Src/vartype_convert.c ****   uint8_t is_negative = 0;
+  47              		.loc 1 11 11 view .LVU7
+  48 0006 0025     		movs	r5, #0
+  49              	.LVL2:
+  50              	.L2:
+  15:Core/Src/vartype_convert.c ****   {
+  16:Core/Src/vartype_convert.c ****     is_negative = 1;
+  51              		.loc 1 16 17 view .LVU8
+  52 0008 0022     		movs	r2, #0
+  53              	.LVL3:
+  54              	.L3:
+  17:Core/Src/vartype_convert.c ****     num = -num;
+  18:Core/Src/vartype_convert.c ****   }
+  19:Core/Src/vartype_convert.c **** 
+  20:Core/Src/vartype_convert.c ****   // Process each digit
+  21:Core/Src/vartype_convert.c ****   do
+  55              		.loc 1 21 3 is_stmt 1 view .LVU9
+  22:Core/Src/vartype_convert.c ****   {
+  23:Core/Src/vartype_convert.c ****     str[i++] = (num % 10) + '0'; // Convert digit to character
+  56              		.loc 1 23 5 view .LVU10
+  57              		.loc 1 23 21 is_stmt 0 view .LVU11
+  58 000a 184B     		ldr	r3, .L10
+  59 000c 83FB003C 		smull	r3, ip, r3, r0
+  60 0010 C317     		asrs	r3, r0, #31
+  61 0012 C3EBAC03 		rsb	r3, r3, ip, asr #2
+  62 0016 1C46     		mov	r4, r3
+  63 0018 03EB8303 		add	r3, r3, r3, lsl #2
+  64 001c A0EB4303 		sub	r3, r0, r3, lsl #1
+  65 0020 9446     		mov	ip, r2
+  66              		.loc 1 23 10 view .LVU12
+  67 0022 0132     		adds	r2, r2, #1
+  68              	.LVL4:
+  69              		.loc 1 23 10 view .LVU13
+  70 0024 D2B2     		uxtb	r2, r2
+  71              	.LVL5:
+  72              		.loc 1 23 27 view .LVU14
+  73 0026 3033     		adds	r3, r3, #48
+  74              		.loc 1 23 14 view .LVU15
+  75 0028 01F80C30 		strb	r3, [r1, ip]
+  24:Core/Src/vartype_convert.c ****     num /= 10;
+  76              		.loc 1 24 5 is_stmt 1 view .LVU16
+  77              		.loc 1 24 9 is_stmt 0 view .LVU17
+  78 002c 2046     		mov	r0, r4
+  79              	.LVL6:
+  25:Core/Src/vartype_convert.c ****   } while (num != 0);
+  80              		.loc 1 25 16 is_stmt 1 discriminator 1 view .LVU18
+  81 002e 002C     		cmp	r4, #0
+  82 0030 EBD1     		bne	.L3
+  26:Core/Src/vartype_convert.c **** 
+  27:Core/Src/vartype_convert.c ****   // Add '-' for negative numbers
+  28:Core/Src/vartype_convert.c ****   if (is_negative)
+  83              		.loc 1 28 3 view .LVU19
+  84              		.loc 1 28 6 is_stmt 0 view .LVU20
+  85 0032 2DB1     		cbz	r5, .L4
+  29:Core/Src/vartype_convert.c ****   {
+ARM GAS  C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s 			page 3
+
+
+  30:Core/Src/vartype_convert.c ****     str[i++] = '-';
+  86              		.loc 1 30 5 is_stmt 1 view .LVU21
+  87              		.loc 1 30 10 is_stmt 0 view .LVU22
+  88 0034 0CF1020C 		add	ip, ip, #2
+  89              	.LVL7:
+  90              		.loc 1 30 14 view .LVU23
+  91 0038 2D23     		movs	r3, #45
+  92 003a 8B54     		strb	r3, [r1, r2]
+  93              		.loc 1 30 10 view .LVU24
+  94 003c 5FFA8CF2 		uxtb	r2, ip
+  95              	.LVL8:
+  96              	.L4:
+  31:Core/Src/vartype_convert.c ****   }
+  32:Core/Src/vartype_convert.c **** 
+  33:Core/Src/vartype_convert.c ****   // Null-terminate the string
+  34:Core/Src/vartype_convert.c ****   str[i] = '\0';
+  97              		.loc 1 34 3 is_stmt 1 view .LVU25
+  98              		.loc 1 34 10 is_stmt 0 view .LVU26
+  99 0040 0020     		movs	r0, #0
+ 100              	.LVL9:
+ 101              		.loc 1 34 10 view .LVU27
+ 102 0042 8854     		strb	r0, [r1, r2]
+  35:Core/Src/vartype_convert.c **** 
+  36:Core/Src/vartype_convert.c ****   // Reverse the string
+  37:Core/Src/vartype_convert.c ****   uint8_t start = 0;
+ 103              		.loc 1 37 3 is_stmt 1 view .LVU28
+ 104              	.LVL10:
+  38:Core/Src/vartype_convert.c ****   uint8_t end = i - 1;
+ 105              		.loc 1 38 3 view .LVU29
+ 106              		.loc 1 38 11 is_stmt 0 view .LVU30
+ 107 0044 531E     		subs	r3, r2, #1
+ 108 0046 DBB2     		uxtb	r3, r3
+ 109              	.LVL11:
+  39:Core/Src/vartype_convert.c ****   while (start < end)
+ 110              		.loc 1 39 3 is_stmt 1 view .LVU31
+  37:Core/Src/vartype_convert.c ****   uint8_t end = i - 1;
+ 111              		.loc 1 37 11 is_stmt 0 view .LVU32
+ 112 0048 0246     		mov	r2, r0
+ 113              	.LVL12:
+ 114              		.loc 1 39 9 view .LVU33
+ 115 004a 0AE0     		b	.L5
+ 116              	.LVL13:
+ 117              	.L9:
+  16:Core/Src/vartype_convert.c ****     num = -num;
+ 118              		.loc 1 16 5 is_stmt 1 view .LVU34
+  17:Core/Src/vartype_convert.c ****   }
+ 119              		.loc 1 17 5 view .LVU35
+  17:Core/Src/vartype_convert.c ****   }
+ 120              		.loc 1 17 9 is_stmt 0 view .LVU36
+ 121 004c 4042     		rsbs	r0, r0, #0
+ 122              	.LVL14:
+  16:Core/Src/vartype_convert.c ****     num = -num;
+ 123              		.loc 1 16 17 view .LVU37
+ 124 004e 0125     		movs	r5, #1
+ 125 0050 DAE7     		b	.L2
+ 126              	.LVL15:
+ 127              	.L6:
+ARM GAS  C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s 			page 4
+
+
+ 128              	.LBB2:
+  40:Core/Src/vartype_convert.c ****   {
+  41:Core/Src/vartype_convert.c ****     uint8_t temp = str[start];
+ 129              		.loc 1 41 5 is_stmt 1 view .LVU38
+ 130              		.loc 1 41 13 is_stmt 0 view .LVU39
+ 131 0052 885C     		ldrb	r0, [r1, r2]	@ zero_extendqisi2
+ 132              	.LVL16:
+  42:Core/Src/vartype_convert.c ****     str[start] = str[end];
+ 133              		.loc 1 42 5 is_stmt 1 view .LVU40
+ 134              		.loc 1 42 21 is_stmt 0 view .LVU41
+ 135 0054 CC5C     		ldrb	r4, [r1, r3]	@ zero_extendqisi2
+ 136              		.loc 1 42 16 view .LVU42
+ 137 0056 8C54     		strb	r4, [r1, r2]
+  43:Core/Src/vartype_convert.c ****     str[end] = temp;
+ 138              		.loc 1 43 5 is_stmt 1 view .LVU43
+ 139              		.loc 1 43 14 is_stmt 0 view .LVU44
+ 140 0058 C854     		strb	r0, [r1, r3]
+  44:Core/Src/vartype_convert.c ****     start++;
+ 141              		.loc 1 44 5 is_stmt 1 view .LVU45
+ 142              		.loc 1 44 10 is_stmt 0 view .LVU46
+ 143 005a 0132     		adds	r2, r2, #1
+ 144              	.LVL17:
+ 145              		.loc 1 44 10 view .LVU47
+ 146 005c D2B2     		uxtb	r2, r2
+ 147              	.LVL18:
+  45:Core/Src/vartype_convert.c ****     end--;
+ 148              		.loc 1 45 5 is_stmt 1 view .LVU48
+ 149              		.loc 1 45 8 is_stmt 0 view .LVU49
+ 150 005e 013B     		subs	r3, r3, #1
+ 151              	.LVL19:
+ 152              		.loc 1 45 8 view .LVU50
+ 153 0060 DBB2     		uxtb	r3, r3
+ 154              	.LVL20:
+ 155              	.L5:
+ 156              		.loc 1 45 8 view .LVU51
+ 157              	.LBE2:
+  39:Core/Src/vartype_convert.c ****   {
+ 158              		.loc 1 39 16 is_stmt 1 view .LVU52
+ 159 0062 9A42     		cmp	r2, r3
+ 160 0064 F5D3     		bcc	.L6
+  46:Core/Src/vartype_convert.c ****   }
+  47:Core/Src/vartype_convert.c **** }...
+ 161              		.loc 1 47 1 is_stmt 0 view .LVU53
+ 162 0066 30BC     		pop	{r4, r5}
+ 163              	.LCFI1:
+ 164              		.cfi_restore 5
+ 165              		.cfi_restore 4
+ 166              		.cfi_def_cfa_offset 0
+ 167              	.LVL21:
+ 168              		.loc 1 47 1 view .LVU54
+ 169 0068 7047     		bx	lr
+ 170              	.L11:
+ 171 006a 00BF     		.align	2
+ 172              	.L10:
+ 173 006c 67666666 		.word	1717986919
+ 174              		.cfi_endproc
+ 175              	.LFE65:
+ARM GAS  C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s 			page 5
+
+
+ 177              		.text
+ 178              	.Letext0:
+ 179              		.file 2 "C:/msys64/mingw64/arm-none-eabi/include/machine/_default_types.h"
+ 180              		.file 3 "C:/msys64/mingw64/arm-none-eabi/include/sys/_stdint.h"
+ARM GAS  C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s 			page 6
+
+
+DEFINED SYMBOLS
+                            *ABS*:00000000 vartype_convert.c
+C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s:19     .text.int_to_str:00000000 $t
+C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s:25     .text.int_to_str:00000000 int_to_str
+C:\Users\binhp\AppData\Local\Temp\cc3aTpp5.s:173    .text.int_to_str:0000006c $d
+                           .group:00000000 wm4.0.82cd861fcffc377458525806b973ac66
+                           .group:00000000 wm4.stm32f1xx_hal_conf.h.22.cbdc1b1d5adafd94f8d8dcf6c1f3e8fc
+                           .group:00000000 wm4.stm32f1xx.h.38.e862c4e1b39ca120fca296a79f75a275
+                           .group:00000000 wm4.stm32f103xb.h.37.7c5fb130aa158ead5441dda9799c1941
+                           .group:00000000 wm4._newlib_version.h.4.411db44ea2338a62eca2f0777f81481b
+                           .group:00000000 wm4.features.h.33.2eefb68b261e70563a8ac654e712169f
+                           .group:00000000 wm4._default_types.h.15.247e5cd201eca3442cbf5404108c4935
+                           .group:00000000 wm4._intsup.h.10.48bafbb683905c4daa4565a85aeeb264
+                           .group:00000000 wm4._stdint.h.10.c24fa3af3bc1706662bb5593a907e841
+                           .group:00000000 wm4.stdint.h.23.d53047a68f4a85177f80b422d52785ed
+                           .group:00000000 wm4.cmsis_version.h.32.4d5822004c01a829a975260e854b5f8e
+                           .group:00000000 wm4.core_cm3.h.66.fc46cac19810db8f98d67da7ef88f42c
+                           .group:00000000 wm4.cmsis_gcc.h.26.4f5798e999d5690b80e6ded3ecc94b37
+                           .group:00000000 wm4.core_cm3.h.127.f4474120f1a7524deb56f9d74ff175da
+                           .group:00000000 wm4.stm32f103xb.h.572.e8b8d889d857e2c56f82ca03c5328917
+                           .group:00000000 wm4.stm32f1xx.h.161.0d1b9fd26c53008e1116394047fa1b84
+                           .group:00000000 wm4.stm32_hal_legacy.h.22.d050171c85a9d8567d1f9a012537baa2
+                           .group:00000000 wm4.stddef.h.39.0dc9006b34572d4d9cae4c8b422c4971
+                           .group:00000000 wm4.stm32f1xx_hal_def.h.56.354d0a4bf0f6ef7af10e3429b7628481
+                           .group:00000000 wm4.stm32f1xx_hal_rcc.h.93.3fadb58bdef0723b74d9eb798753b168
+                           .group:00000000 wm4.stm32f1xx_hal_rcc_ex.h.20.5a464c1dc9022dc2a67fe45b2054f77c
+                           .group:00000000 wm4.stm32f1xx_hal_rcc.h.1200.d6cbb5717f01cee373a6e1fba84d9163
+                           .group:00000000 wm4.stm32f1xx_hal_gpio.h.21.0099da253a68660e916195d3e8928be3
+                           .group:00000000 wm4.stm32f1xx_hal_gpio_ex.h.21.93f1f3ec7660fa76375def81b976f73c
+                           .group:00000000 wm4.stm32f1xx_hal_gpio.h.262.7df79220ec7519ba80c1763e6b4854a6
+                           .group:00000000 wm4.stm32f1xx_hal_exti.h.21.a7f1b393a0c9b2b56b72ccdbb8dee508
+                           .group:00000000 wm4.stm32f1xx_hal_dma.h.21.11e5a204ed6aa790b1cdae2e4192bc9d
+                           .group:00000000 wm4.stm32f1xx_hal_dma_ex.h.21.d438f745b4c04dc23f9f569190526864
+                           .group:00000000 wm4.stm32f1xx_hal_dma.h.408.14794a3f8621230c9ac7fca0cacf3e57
+                           .group:00000000 wm4.stm32f1xx_hal_cortex.h.21.6ab92041a8778f53d2d2d96b3825535a
+                           .group:00000000 wm4.stm32f1xx_hal_flash.h.20.2db7f614c43999568df8c1bd8d5f2459
+                           .group:00000000 wm4.stm32f1xx_hal_flash_ex.h.20.c1d01fb364bcc8befd238a2d45469cc1
+                           .group:00000000 wm4.stm32f1xx_hal_i2c.h.21.6a947c870feb456d84d10dd871ee01bd
+                           .group:00000000 wm4.stm32f1xx_hal_pwr.h.21.ec3e2cfd4c26fffa32fc4ff0a8ac7390
+                           .group:00000000 wm4.stm32f1xx_hal_uart.h.21.96146ab5759dfe03d0cc100d79254944
+                           .group:00000000 wm4.stm32f1xx_hal.h.87.60093b86a987865736d7cddecce3c235
+
+NO UNDEFINED SYMBOLS
