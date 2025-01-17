@@ -34,7 +34,6 @@
 
 #define NUM_BYTE_MAX 64
 #define UPLOADING_TIMEOUT (2000000) //
-#define NUM_VEC (4)                 // Check number of reset vectors when check validation
 #define START_WRITE 1
 #define READ_CRC 2
 #define WRITE_DATA 3

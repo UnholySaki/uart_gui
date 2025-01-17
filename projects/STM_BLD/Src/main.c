@@ -1,7 +1,7 @@
 #include "../Inc/main.h"
-#include "../Inc/mem_jump_function.h"
-#include "../../../Common/Inc/vartype_convert.h"
-#include "../../../Common/Inc/checksum.h"
+#include "../Inc/memory.h"
+#include "../../Common/Inc/vartype_convert.h"
+#include "../../Common/Inc/checksum.h"
 #include "../Inc/memory_map.h"
 #include "../../../Common/Inc/util.h"
 #include "../Inc/hal_i2c.h"
@@ -10,9 +10,7 @@
 #define JUMP_TO_APP 0
 #define USE_CUSTOM_HAL_I2C 1
 
-
-bld_cmd_e cmd = CMD_NOP;
-interrupt_rq_e irq_cmd = IRQ_CMD_NOP;
+bld_cmd_e bld_cmd = CMD_NOP;
 
 uint8_t gRxData[NUM_BYTE_MAX] = {};
 uint8_t gTxData[TXDATA_SIZE] = {};
@@ -33,69 +31,24 @@ bool start_timeout = false;
 uint32_t uploading_timer = 0;
 
 uint8_t state = READ_BYTECOUNT;
-
 uint32_t address;
+
+uint8_t counter = 0;
+hal_i2c_hdl_t *i2chandle;
+hal_i2c_cfg_t cfg;
+hal_i2c_instance_e i2c0 = HAL_I2C0;
 
 /*============================FUNCTION VARIABLES====================================*/
 
-typedef void (*pfunction)(void);
 // I2C_HandleTypeDef hi2c1;
 UART_HandleTypeDef huart1;
 
 /*============================DECLARE FUNCTIONS====================================*/
-void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_I2C1_Init(void);
-static void MX_USART1_UART_Init(void);
-
 void process_hex_file(void);
 void erase_memory(uint32_t adr, uint32_t size);
 static void I2C_fill_data(uint8_t *u8_data);
 
 /*============================FUNCTIONS====================================*/
-
-/**
- * @brief Erase memory section (32kB)
- * @param adr start of memory section
- * @param size how much data to be erased
- */
-void erase_memory(uint32_t adr, uint32_t size)
-{
-  uint32_t start_adr = adr;
-  while (start_adr < adr + size)
-  {
-    HAL_FLASH_Unlock();
-    FLASH_PageErase(start_adr);
-    CLEAR_BIT(FLASH->CR, (FLASH_CR_PER));
-    HAL_FLASH_Lock();
-
-    start_adr += 0x400; // 1 PAGE
-  }
-}
-
-/**
- * @brief Verify that app image exists
- * @return true if verification is successful, false otherwise
- */
-bool verify_memory(uint32_t start_adr)
-{
-  uint32_t *p32 = (uint32_t *)(start_adr);
-  if ((p32[0] < RAM_START_ADDR) || (p32[0] > RAM_END_ADDR))
-  {
-    return false;
-  }
-  else
-  {
-    for (uint8_t i = 1; i <= NUM_VEC; i++)
-    {
-      if ((p32[i] < FLASH_START_ADDR) || (p32[i] > FLASH_END_ADDR))
-      {
-        return false;
-      }
-    }
-  }
-  return true;
-}
 
 /**
  * @brief read and upload the data to flash
@@ -205,63 +158,68 @@ void process_hex_file(void)
   }
 }
 
-static void I2C_fill_data(uint8_t *u8_data)
+static interrupt_rq_e I2C_select_command(uint8_t *u8_data)
 {
+  interrupt_rq_e i2c_cmd = IRQ_CMD_NOP;
   switch (u8_data[0])
   {
   case RQ_ERASE:
   {
-    irq_cmd = IRQ_CMD_ERASE;
+    i2c_cmd = IRQ_CMD_ERASE;
   }
   break;
 
   case RQ_CHECK_BLANKING:
   {
-    irq_cmd = IRQ_CMD_CHECK_BLANKING;
+    i2c_cmd = IRQ_CMD_CHECK_BLANKING;
   }
   break;
 
   case RQ_CHECK_CRC:
   {
-    irq_cmd = IRQ_CMD_CHECK_CRC;
+    i2c_cmd = IRQ_CMD_CHECK_CRC;
   }
   break;
 
   case RQ_UPLOADING:
   {
-    irq_cmd = IRQ_CMD_UPLOADING;
-    state = START_WRITE;
-    cmd = CMD_UPLOADING;
+    i2c_cmd = IRQ_CMD_UPLOADING;
   }
   break;
 
   case RQ_SYSTEM_RESET:
   {
-    cmd = CMD_SYSTEM_RESET;
+    i2c_cmd = IRQ_CMD_SYSTEM_RESET;
   }
   break;
 
   case RQ_GET_BLD_VER:
   {
-    cmd = CMD_GET_BLD_VER;
+    i2c_cmd = IRQ_CMD_GET_BLD_VER;
   }
   break;
 
   case RQ_ENTER_BLD:
   {
-    irq_cmd = IRQ_CMD_ENTER_BLD;
+    i2c_cmd = IRQ_CMD_ENTER_BLD;
   }
   break;
 
   case RQ_EXIT_BLD:
   {
-    irq_cmd = IRQ_CMD_EXIT_BLD;
+    i2c_cmd = IRQ_CMD_EXIT_BLD;
   }
   break;
 
   default:
     break;
   }
+  return i2c_cmd;
+}
+
+static bld_cmd_e I2C_fill_data(uint8_t *u8_data)
+{
+  interrupt_rq_e irq_cmd = I2C_select_command(u8_data);
 
   line_ptr = 0;
   line_len = 0;
@@ -284,7 +242,7 @@ static void I2C_fill_data(uint8_t *u8_data)
         break;
       }
     }
-    cmd = CMD_UPLOADING;
+    bld_cmd = CMD_UPLOADING;
     state = WRITE_DATA;
     start_timeout = true;
     line_ptr = 0;
@@ -300,7 +258,7 @@ static void I2C_fill_data(uint8_t *u8_data)
       data.byte[line_ptr] = u8_data[1 + line_ptr];
       line_ptr++;
     }
-    cmd = CMD_CHECK_CRC;
+    bld_cmd = CMD_CHECK_CRC;
     line_ptr = 0;
     start_timeout = true;
     irq_cmd = IRQ_CMD_NOP;
@@ -315,7 +273,7 @@ static void I2C_fill_data(uint8_t *u8_data)
       data.byte[line_ptr] = u8_data[1 + line_ptr];
       line_ptr++;
     }
-    cmd = CMD_BLANKING;
+    bld_cmd = CMD_BLANKING;
     line_ptr = 0;
     start_timeout = true;
     irq_cmd = IRQ_CMD_NOP;
@@ -330,7 +288,7 @@ static void I2C_fill_data(uint8_t *u8_data)
       line_ptr++;
     }
     // 4 bytes for address and 4 bytes for size, 1 byte cs
-    cmd = CMD_ERASE;
+    bld_cmd = CMD_ERASE;
     line_ptr = 0;
     start_timeout = true;
     irq_cmd = IRQ_CMD_NOP;
@@ -345,7 +303,7 @@ static void I2C_fill_data(uint8_t *u8_data)
       data.byte[line_ptr] = u8_data[1 + line_ptr];
       line_ptr++;
     }
-    cmd = CMD_ENTER_BLD;
+    bld_cmd = CMD_ENTER_BLD;
     line_ptr = 0;
     start_timeout = true;
     irq_cmd = IRQ_CMD_NOP;
@@ -360,21 +318,26 @@ static void I2C_fill_data(uint8_t *u8_data)
       data.byte[line_ptr] = u8_data[1 + line_ptr];
       line_ptr++;
     }
-    cmd = CMD_EXIT_BLD;
+    bld_cmd = CMD_EXIT_BLD;
     line_ptr = 0;
     start_timeout = true;
     irq_cmd = IRQ_CMD_NOP;
   }
   break;
 
+  case IRQ_CMD_SYSTEM_RESET:
+    bld_cmd = CMD_SYSTEM_RESET;
+    break;
+
+  case IRQ_CMD_GET_BLD_VER:
+    bld_cmd = CMD_GET_BLD_VER;
+    break;
+
   default:
     break;
   }
+  return bld_cmd;
 }
-uint8_t counter = 0;
-hal_i2c_hdl_t *i2chandle;
-hal_i2c_cfg_t cfg;
-hal_i2c_instance_e i2c0 = HAL_I2C0;
 
 /*============================MAIN====================================*/
 
@@ -660,10 +623,10 @@ int main(void)
     };
 
     cmd_temp = CMD_NOP;
-    if (cmd != CMD_NOP)
+    if (bld_cmd != CMD_NOP)
     {
-      cmd_temp = cmd;
-      cmd = CMD_NOP;
+      cmd_temp = bld_cmd;
+      bld_cmd = CMD_NOP;
     }
 
     /* Set timeout*/
@@ -688,7 +651,7 @@ int main(void)
 /* -------------------i2c interrupt -------------------------------------------*/
 void HAL_I2C_ListenCpltCallback(I2C_HandleTypeDef *hi2c)
 {
-  I2C_fill_data(&gRxData);
+  bld_cmd = I2C_fill_data(&gRxData);
   hi2c->pBuffPtr = gTxData;
   HAL_I2C_EnableListen_IT(i2chandle);
   gTxData[0] = 0x11;
@@ -720,123 +683,6 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
   cnt++;
 }
 
-/*============================init====================================*/
-
-/**
- * @brief System Clock Configuration
- * @retval None
- */
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-  /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
- * @brief USART1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_USART1_UART_Init(void)
-{
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-}
-
-/**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PC13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-}
 /**
  * @brief  This function is executed in case of error occurrence.
  * @retval None

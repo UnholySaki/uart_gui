@@ -36,13 +36,15 @@ BUILD_DIR = build
 ######################################
 # C sources
 C_SOURCES =  \
-Core/Src/main.c \
-Core/Src/mem_jump_function.c \
+Src/main.c \
+Src/memory.c \
+Src/hal_i2c.c \
+Src/i2c_handler.c \
+Src/hal_gpio.c \
+Src/peripheral.c \
 ../Common/Src/vartype_convert.c \
 ../Common/Src/checksum.c \
 ../Common/Src/util.c \
-Core/Src/hal_i2c.c \
-Core/Src/hal_gpio.c \
 Core/Src/stm32f1xx_it.c \
 Core/Src/stm32f1xx_hal_msp.c \
 Drivers/STM32F1xx_HAL_Driver/Src/stm32f1xx_hal_gpio_ex.c \
@@ -125,6 +127,7 @@ AS_INCLUDES =
 # C includes
 C_INCLUDES =  \
 -I/../Common/Inc \
+-IInc \
 -ICore/Inc \
 -IDrivers/STM32F1xx_HAL_Driver/Inc \
 -IDrivers/STM32F1xx_HAL_Driver/Inc/Legacy \

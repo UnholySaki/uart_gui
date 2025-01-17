@@ -5,3 +5,4 @@
 **/.venv
 **/test
 **/build/**
+**/.settings
